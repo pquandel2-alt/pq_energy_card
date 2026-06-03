@@ -273,6 +273,20 @@ class EnergyCardEditor extends HTMLElement {
     this._config = { ...config };
     if (!Array.isArray(this._config.entities)) this._config.entities = [];
     if (this._rendered) {
+      // Eingabefelder der 4 Sonder-Entitäten mit geladenen Werten synchronisieren
+      const root = this.shadowRoot;
+      const active = root.activeElement;
+      [['total_entity','field_total'], ['solar_entity','field_solar'],
+       ['battery_entity','field_battery'], ['meter_entity','field_meter']].forEach(([key, fieldId]) => {
+        const container = root.getElementById(fieldId);
+        if (!container) return;
+        const input   = container.querySelector('input[type=text]');
+        const clrBtn  = container.querySelector('button');
+        if (input && active !== input) {
+          input.value = this._config[key] || '';
+          if (clrBtn) clrBtn.style.display = this._config[key] ? 'block' : 'none';
+        }
+      });
       this._updateEntityList();
       this._updatePicker();
     } else {
