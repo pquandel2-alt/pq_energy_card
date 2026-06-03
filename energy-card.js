@@ -282,8 +282,17 @@ class EnergyCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._rendered) this._render();
-    else { this._updateEntityList(); this._updatePicker(); }
+    if (!this._rendered) {
+      this._render();
+    } else {
+      // Nicht neu aufbauen solange der Nutzer einen Namen bearbeitet
+      const list = this.shadowRoot.getElementById('entityList');
+      const active = this.shadowRoot.activeElement;
+      if (!active || !list || !list.contains(active)) {
+        this._updateEntityList();
+      }
+      this._updatePicker();
+    }
   }
 
   _emit() {
