@@ -429,8 +429,7 @@ class EnergyCardEditor extends HTMLElement {
 
       const nameInput = document.createElement('input');
       nameInput.type = 'text';
-      nameInput.value = customName;
-      nameInput.placeholder = fn;
+      nameInput.value = customName || fn;
       nameInput.style.cssText = 'flex:1;border:1px solid transparent;border-radius:4px;outline:none;background:transparent;font-size:12px;color:var(--primary-text-color,#212121);min-width:0;padding:2px 4px;';
       nameInput.addEventListener('focus', () => {
         nameInput.style.borderColor = 'var(--primary-color,#03a9f4)';
@@ -443,7 +442,8 @@ class EnergyCardEditor extends HTMLElement {
       nameInput.addEventListener('change', () => {
         const ents = [...(this._config.entities || [])];
         const newName = nameInput.value.trim();
-        ents[i] = newName ? { entity: entityId, name: newName } : entityId;
+        // Kein Custom-Override nötig wenn Name dem Friendly-Name entspricht
+        ents[i] = (newName && newName !== fn) ? { entity: entityId, name: newName } : entityId;
         this._config = { ...this._config, entities: ents };
         this._emit();
       });
