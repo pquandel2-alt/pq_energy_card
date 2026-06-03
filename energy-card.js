@@ -71,9 +71,10 @@ class EnergyCard extends HTMLElement {
         const st = this._hass.states[id];
         if (!st) return null;
         const watts = getStateWatts(st);
+        const customName = typeof e === 'object' && e.name ? e.name : null;
         return {
           id,
-          name: st.attributes.friendly_name || id,
+          name: customName || st.attributes.friendly_name || id,
           watts,
           icon: st.attributes.icon || 'mdi:flash',
           unavailable: st.state === 'unavailable' || st.state === 'unknown',
@@ -211,15 +212,12 @@ class EnergyCard extends HTMLElement {
         ${cfg.show_header ? `
           <div class="header">
             <span class="title">${cfg.title || 'Stromverbrauch'}</span>
-            ${totalWatts !== null
-              ? `<span class="badge">${formatPower(totalWatts)}</span>`
-              : `<span class="badge badge-neutral">${consumers.length}&nbsp;Ger&auml;te</span>`}
           </div>
         ` : ''}
 
         ${hasTiles ? `
           <div class="tiles">
-            ${cfg.total_entity   ? this._tile('mdi:transmission-tower', 'Gesamtverbrauch', formatPower(totalWatts),    '#FF9800') : ''}
+            ${cfg.total_entity   ? this._tile('mdi:transmission-tower', 'Akt. Gesamtverbrauch', formatPower(totalWatts), '#FF9800') : ''}
             ${cfg.solar_entity   ? this._tile('mdi:solar-power-variant', 'Solar',          formatPower(solarWatts),   '#4CAF50') : ''}
             ${cfg.battery_entity ? this._tile('mdi:battery-charging',   'Akku',
                 !isNaN(battPct) ? `${Math.round(battPct)}&thinsp;%` : '–', '#42A5F5') : ''}
@@ -394,9 +392,9 @@ class EnergyCardEditor extends HTMLElement {
     const list = this.shadowRoot.getElementById('entityList');
     if (!list) return;
     list.innerHTML = '';
-    const ids = this._getEntityIds();
+    const entities = this._config.entities || [];
 
-    if (ids.length === 0) {
+    if (entities.length === 0) {
       const msg = document.createElement('div');
       msg.style.cssText = 'font-size:12px;color:var(--secondary-text-color,#888);padding:4px 0;';
       msg.textContent = 'Noch keine Verbraucher hinzugefügt.';
@@ -404,7 +402,10 @@ class EnergyCardEditor extends HTMLElement {
       return;
     }
 
-    ids.forEach((entityId, i) => {
+    entities.forEach((entityObj, i) => {
+      const entityId  = typeof entityObj === 'string' ? entityObj : entityObj?.entity;
+      if (!entityId) return;
+      const customName = typeof entityObj === 'object' && entityObj.name ? entityObj.name : '';
       const st    = this._hass?.states[entityId];
       const fn    = st?.attributes?.friendly_name || entityId;
       const watts = getStateWatts(st);
@@ -417,9 +418,26 @@ class EnergyCardEditor extends HTMLElement {
       ic.setAttribute('icon', st?.attributes?.icon || 'mdi:flash');
       ic.style.cssText = `--mdc-icon-size:18px;color:${color};flex-shrink:0;`;
 
-      const nameEl = document.createElement('span');
-      nameEl.textContent = fn;
-      nameEl.style.cssText = 'flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = customName;
+      nameInput.placeholder = fn;
+      nameInput.style.cssText = 'flex:1;border:1px solid transparent;border-radius:4px;outline:none;background:transparent;font-size:12px;color:var(--primary-text-color,#212121);min-width:0;padding:2px 4px;';
+      nameInput.addEventListener('focus', () => {
+        nameInput.style.borderColor = 'var(--primary-color,#03a9f4)';
+        nameInput.style.background  = 'var(--card-background-color,#fff)';
+      });
+      nameInput.addEventListener('blur', () => {
+        nameInput.style.borderColor = 'transparent';
+        nameInput.style.background  = 'transparent';
+      });
+      nameInput.addEventListener('change', () => {
+        const ents = [...(this._config.entities || [])];
+        const newName = nameInput.value.trim();
+        ents[i] = newName ? { entity: entityId, name: newName } : entityId;
+        this._config = { ...this._config, entities: ents };
+        this._emit();
+      });
 
       const wattEl = document.createElement('span');
       wattEl.textContent = formatPower(watts);
@@ -430,7 +448,7 @@ class EnergyCardEditor extends HTMLElement {
       btn.title = 'Entfernen';
       btn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--error-color,#f44336);font-size:18px;padding:0 2px;line-height:1;flex-shrink:0;';
       btn.addEventListener('click', () => {
-        const ents = this._getEntityIds();
+        const ents = [...(this._config.entities || [])];
         ents.splice(i, 1);
         this._config = { ...this._config, entities: ents };
         this._emit();
@@ -438,7 +456,7 @@ class EnergyCardEditor extends HTMLElement {
         this._updatePicker();
       });
 
-      row.appendChild(ic); row.appendChild(nameEl); row.appendChild(wattEl); row.appendChild(btn);
+      row.appendChild(ic); row.appendChild(nameInput); row.appendChild(wattEl); row.appendChild(btn);
       list.appendChild(row);
     });
   }
