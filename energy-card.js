@@ -1,5 +1,5 @@
 // =====================================================================
-//  Energy Card v1.0.0
+//  Energy Card v1.0.7
 // =====================================================================
 
 function formatPower(watts) {
@@ -48,6 +48,7 @@ class EnergyCard extends HTMLElement {
       title: 'Stromverbrauch',
       show_header: true,
       show_tiles: true,
+      show_solar_ratio: false,
       columns: 1,
       max_height: 0,
       min_watt_filter: 0,
@@ -98,13 +99,14 @@ class EnergyCard extends HTMLElement {
     return { entities: [], show_header: true, show_tiles: true, title: 'Stromverbrauch' };
   }
 
-  _tile(icon, label, value, color) {
+  _tile(icon, label, value, color, subValue = null) {
     return `
       <div class="tile" style="border-color:${color}44;">
         <ha-icon icon="${icon}" style="--mdc-icon-size:22px;color:${color};flex-shrink:0;"></ha-icon>
         <div class="tile-info">
           <span class="tile-label">${label}</span>
           <span class="tile-value" style="color:${color};">${value}</span>
+          ${subValue ? `<span class="tile-sub">${subValue}</span>` : ''}
         </div>
       </div>`;
   }
@@ -118,16 +120,23 @@ class EnergyCard extends HTMLElement {
     const solarSt   = cfg.solar_entity   ? this._hass.states[cfg.solar_entity]   : null;
     const batterySt = cfg.battery_entity ? this._hass.states[cfg.battery_entity] : null;
     const meterSt   = cfg.meter_entity   ? this._hass.states[cfg.meter_entity]   : null;
+    const costSt    = cfg.cost_entity    ? this._hass.states[cfg.cost_entity]    : null;
 
     const totalWatts   = getStateWatts(totalSt);
     const solarWatts   = getStateWatts(solarSt);
     const battPct      = batterySt ? parseFloat(batterySt.state) : null;
     const meterVal     = meterSt   ? parseFloat(meterSt.state)   : null;
     const meterUnit    = meterSt?.attributes?.unit_of_measurement || 'kWh';
+    const costVal      = costSt    ? parseFloat(costSt.state)    : null;
+    const costUnit     = costSt?.attributes?.unit_of_measurement || '';
+
+    const solarRatio = cfg.show_solar_ratio && solarWatts !== null && totalWatts !== null && totalWatts > 0
+      ? Math.min(100, Math.round((solarWatts / totalWatts) * 100))
+      : null;
 
     const hasTiles = cfg.show_tiles &&
-      (cfg.total_entity || cfg.solar_entity || cfg.battery_entity || cfg.meter_entity);
-    const tileCount = [cfg.total_entity, cfg.solar_entity, cfg.battery_entity, cfg.meter_entity]
+      (cfg.total_entity || cfg.solar_entity || cfg.battery_entity || cfg.meter_entity || cfg.cost_entity);
+    const tileCount = [cfg.total_entity, cfg.solar_entity, cfg.battery_entity, cfg.meter_entity, cfg.cost_entity]
       .filter(Boolean).length;
 
     const maxWatts = Math.max(...consumers.map(c => c.watts ?? 0), 1);
@@ -136,7 +145,7 @@ class EnergyCard extends HTMLElement {
 
     const key = [
       consumers.map(c => `${c.id}:${c.watts}`).join('|'),
-      totalWatts, solarWatts, battPct, meterVal,
+      totalWatts, solarWatts, battPct, meterVal, costVal,
       JSON.stringify(cfg),
     ].join('_');
     if (key === this._lastKey) return;
@@ -182,6 +191,7 @@ class EnergyCard extends HTMLElement {
           text-transform:uppercase; letter-spacing:0.4px;
         }
         .tile-value { font-size:15px; font-weight:700; white-space:nowrap; }
+        .tile-sub { font-size:10px; color:rgba(255,255,255,0.45); margin-top:1px; }
         .grid {
           display:grid; grid-template-columns:repeat(${cols},1fr); gap:6px;
           ${cfg.max_height ? `max-height:${cfg.max_height}px;overflow-y:auto;padding-right:2px;` : ''}
@@ -217,12 +227,15 @@ class EnergyCard extends HTMLElement {
 
         ${hasTiles ? `
           <div class="tiles">
-            ${cfg.total_entity   ? this._tile('mdi:transmission-tower', 'Akt. Gesamtverbrauch', formatPower(totalWatts), '#FF9800') : ''}
-            ${cfg.solar_entity   ? this._tile('mdi:solar-power-variant', 'Solar',          formatPower(solarWatts),   '#4CAF50') : ''}
-            ${cfg.battery_entity ? this._tile('mdi:battery-charging',   'Akku',
+            ${cfg.total_entity   ? this._tile('mdi:transmission-tower',  'Akt. Gesamtverbrauch', formatPower(totalWatts), '#FF9800') : ''}
+            ${cfg.solar_entity   ? this._tile('mdi:solar-power-variant', 'Solar', formatPower(solarWatts), '#4CAF50',
+                solarRatio !== null ? `${solarRatio} % Eigenverbrauch` : null) : ''}
+            ${cfg.battery_entity ? this._tile('mdi:battery-charging',    'Akku',
                 !isNaN(battPct) ? `${Math.round(battPct)}&thinsp;%` : '–', '#42A5F5') : ''}
-            ${cfg.meter_entity   ? this._tile('mdi:counter',            'Z&auml;hlerstand',
+            ${cfg.meter_entity   ? this._tile('mdi:counter',             'Z&auml;hlerstand',
                 !isNaN(meterVal) ? `${meterVal.toFixed(1)}&thinsp;${meterUnit}` : '–', '#AB47BC') : ''}
+            ${cfg.cost_entity    ? this._tile('mdi:currency-eur',        'Stromkosten',
+                !isNaN(costVal) ? `${costVal.toFixed(2)}&thinsp;${costUnit}` : '–', '#66BB6A') : ''}
           </div>
         ` : ''}
 
@@ -277,7 +290,8 @@ class EnergyCardEditor extends HTMLElement {
       const root = this.shadowRoot;
       const active = root.activeElement;
       [['total_entity','field_total'], ['solar_entity','field_solar'],
-       ['battery_entity','field_battery'], ['meter_entity','field_meter']].forEach(([key, fieldId]) => {
+       ['battery_entity','field_battery'], ['meter_entity','field_meter'],
+       ['cost_entity','field_cost']].forEach(([key, fieldId]) => {
         const container = root.getElementById(fieldId);
         if (!container) return;
         const input   = container.querySelector('input[type=text]');
@@ -621,6 +635,15 @@ class EnergyCardEditor extends HTMLElement {
           <div class="field" id="field_battery"></div>
           <div class="field" id="field_meter"></div>
         </div>
+        <div class="row">
+          <div class="field" id="field_cost"></div>
+          <div class="field"></div>
+        </div>
+        <div class="toggle-row">
+          <label>Solar-Eigenverbrauchsanteil anzeigen</label>
+          <input type="checkbox" id="show_solar_ratio" ${c.show_solar_ratio ? 'checked' : ''} />
+        </div>
+        <div class="hint">Zeigt in der Solar-Kachel wie viel % des Gesamtverbrauchs durch Solar gedeckt wird (ben&ouml;tigt Solar + Gesamtverbrauch).</div>
 
         <div class="section">Verbraucher</div>
         <button class="load-btn" id="loadAllBtn">
@@ -680,11 +703,12 @@ class EnergyCardEditor extends HTMLElement {
       </div>
     `;
 
-    // Autocomplete-Felder für die 4 Sonder-Entitäten
+    // Autocomplete-Felder für die Sonder-Entitäten
     this._buildEntityField(root, 'field_total',   'Gesamtverbrauch',  'total_entity');
     this._buildEntityField(root, 'field_solar',   'Solar-Einspeisung','solar_entity');
     this._buildEntityField(root, 'field_battery', 'Akku-Ladestand',   'battery_entity');
-    this._buildEntityField(root, 'field_meter',   'Stromzähler', 'meter_entity');
+    this._buildEntityField(root, 'field_meter',   'Stromzähler',      'meter_entity');
+    this._buildEntityField(root, 'field_cost',    'Stromkosten',      'cost_entity');
 
     this._updateEntityList();
     this._updatePicker();
@@ -709,6 +733,9 @@ class EnergyCardEditor extends HTMLElement {
     });
     root.getElementById('show_tiles').addEventListener('change', e => {
       this._config = { ...this._config, show_tiles: e.target.checked }; this._emit();
+    });
+    root.getElementById('show_solar_ratio').addEventListener('change', e => {
+      this._config = { ...this._config, show_solar_ratio: e.target.checked }; this._emit();
     });
     root.getElementById('columns').addEventListener('change', e => {
       this._config = { ...this._config, columns: parseInt(e.target.value) }; this._emit();
