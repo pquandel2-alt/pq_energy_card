@@ -644,7 +644,7 @@ class EnergyCardEditor extends HTMLElement {
     this._buildEntityField(root, 'field_total',   'Gesamtverbrauch',  'total_entity');
     this._buildEntityField(root, 'field_solar',   'Solar-Einspeisung','solar_entity');
     this._buildEntityField(root, 'field_battery', 'Akku-Ladestand',   'battery_entity');
-    this._buildEntityField(root, 'field_meter',   'Stromz&auml;hler', 'meter_entity');
+    this._buildEntityField(root, 'field_meter',   'Stromzähler', 'meter_entity');
 
     this._updateEntityList();
     this._updatePicker();
