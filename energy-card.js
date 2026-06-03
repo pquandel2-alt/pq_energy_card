@@ -299,13 +299,12 @@ class EnergyCardEditor extends HTMLElement {
     if (!this._rendered) {
       this._render();
     } else {
-      // Nicht neu aufbauen solange der Nutzer einen Namen bearbeitet
-      const list = this.shadowRoot.getElementById('entityList');
-      const active = this.shadowRoot.activeElement;
-      if (!active || !list || !list.contains(active)) {
-        this._updateEntityList();
-      }
-      this._updatePicker();
+      const root   = this.shadowRoot;
+      const active = root.activeElement;
+      const list   = root.getElementById('entityList');
+      const picker = root.getElementById('pickerContainer');
+      if (!active || !list   || !list.contains(active))   this._updateEntityList();
+      if (!active || !picker || !picker.contains(active)) this._updatePicker();
     }
   }
 
@@ -492,7 +491,7 @@ class EnergyCardEditor extends HTMLElement {
     if (!this._hass) return;
 
     const current = this._getEntityIds();
-    const available = Object.keys(this._hass.states)
+    const available = getAllPowerEntities(this._hass)
       .filter(id => !current.includes(id))
       .sort((a, b) => {
         const wa = getStateWatts(this._hass.states[a]) ?? -1;
