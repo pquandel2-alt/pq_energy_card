@@ -1,5 +1,5 @@
 // =====================================================================
-//  Energy Card v1.0.8
+//  Energy Card v1.0.9
 // =====================================================================
 
 function formatPower(watts) {
@@ -590,80 +590,26 @@ class EnergyCardEditor extends HTMLElement {
         return wb - wa;
       });
 
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position:relative;';
-
-    const inputRow = document.createElement('div');
-    inputRow.style.cssText = 'display:flex;align-items:center;gap:8px;border:1px dashed var(--divider-color,#ccc);border-radius:8px;background:var(--card-background-color,#fff);padding:6px 10px;';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = '+ Verbraucher hinzufügen…';
-    input.style.cssText = 'flex:1;border:none;outline:none;background:transparent;color:var(--primary-text-color,#212121);font-size:13px;';
-
-    inputRow.appendChild(input);
-
-    const dropdown = document.createElement('div');
-    dropdown.style.cssText = 'position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#e0e0e0);border-radius:8px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.15);display:none;margin-top:2px;';
-
-    const showDropdown = (filter) => {
-      dropdown.innerHTML = '';
-      const lower = (filter || '').toLowerCase().trim();
-      const filtered = available.filter(id => {
-        const fn = (this._hass?.states[id]?.attributes?.friendly_name || '').toLowerCase();
-        return !lower || fn.includes(lower) || id.toLowerCase().includes(lower);
-      }).slice(0, 20);
-
-      if (filtered.length === 0) {
-        dropdown.innerHTML = '<div style="padding:10px;font-size:12px;color:#888;">Keine Treffer.</div>';
-        dropdown.style.display = 'block';
-        return;
-      }
-      filtered.forEach(id => {
-        const st    = this._hass?.states[id];
-        const fn    = st?.attributes?.friendly_name || id;
-        const watts = getStateWatts(st);
-        const color = watts !== null && watts > 0 ? getConsumptionColor(0.5) : 'var(--secondary-text-color,#aaa)';
-
-        const item = document.createElement('div');
-        item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--divider-color,#f0f0f0);';
-
-        const ic = document.createElement('ha-icon');
-        ic.setAttribute('icon', st?.attributes?.icon || 'mdi:flash');
-        ic.style.cssText = `--mdc-icon-size:16px;color:${color};flex-shrink:0;`;
-
-        const txt = document.createElement('div');
-        txt.style.cssText = 'flex:1;min-width:0;';
-        txt.innerHTML = `<div style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fn}</div><div style="font-size:10px;color:var(--secondary-text-color,#727272);">${id}</div>`;
-
-        const wval = document.createElement('span');
-        wval.textContent = formatPower(watts);
-        wval.style.cssText = `font-size:12px;font-weight:600;color:${color};flex-shrink:0;min-width:50px;text-align:right;`;
-
-        item.appendChild(ic); item.appendChild(txt); item.appendChild(wval);
-        item.addEventListener('mouseover', () => { item.style.background = 'var(--secondary-background-color,#f5f5f5)'; });
-        item.addEventListener('mouseout',  () => { item.style.background = ''; });
-        item.addEventListener('mousedown', ev => {
-          ev.preventDefault();
-          input.value = '';
-          dropdown.style.display = 'none';
-          this._config = { ...this._config, entities: [...this._getEntityIds(), id] };
-          this._emit();
-          this._updateEntityList();
-          this._updatePicker();
-        });
-        dropdown.appendChild(item);
-      });
-      dropdown.style.display = 'block';
+    const picker = document.createElement('ha-entity-picker');
+    picker.hass = this._hass;
+    picker.value = '';
+    picker.setAttribute('allow-custom-entity', '');
+    picker.style.cssText = 'display:block;width:100%;';
+    picker.entityFilter = stateObj => {
+      const unit = (stateObj.attributes.unit_of_measurement || '').trim().toLowerCase();
+      return (stateObj.attributes.device_class === 'power' || unit === 'w' || unit === 'kw')
+        && !current.includes(stateObj.entity_id);
     };
-
-    input.addEventListener('focus', () => showDropdown(input.value));
-    input.addEventListener('input', () => showDropdown(input.value));
-    input.addEventListener('blur',  () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
-
-    wrapper.appendChild(inputRow);
-    wrapper.appendChild(dropdown);
-    container.appendChild(wrapper);
+    picker.addEventListener('value-changed', e => {
+      const id = e.detail.value;
+      if (!id) return;
+      picker.value = '';
+      this._config = { ...this._config, entities: [...this._getEntityIds(), id] };
+      this._emit();
+      this._updateEntityList();
+      this._updatePicker();
+    });
+    container.appendChild(picker);
   }
 
   _render() {
