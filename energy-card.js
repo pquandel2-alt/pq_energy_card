@@ -1,5 +1,5 @@
 // =====================================================================
-//  Energy Card v1.0.7
+//  Energy Card v1.0.8
 // =====================================================================
 
 function formatPower(watts) {
@@ -40,10 +40,15 @@ class EnergyCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._config = {};
     this._lastKey = null;
+    this._statsDaily   = undefined;
+    this._statsMonthly = undefined;
+    this._lastStatsFetch = 0;
+    this._statsDate = '';
   }
 
   setConfig(config) {
     if (!config) throw new Error('Keine Konfiguration');
+    const prevMeter = this._config?.meter_entity;
     this._config = {
       title: 'Stromverbrauch',
       show_header: true,
@@ -57,10 +62,59 @@ class EnergyCard extends HTMLElement {
       ...config,
     };
     if (!Array.isArray(this._config.entities)) this._config.entities = [];
+    if (prevMeter !== this._config.meter_entity) {
+      this._statsDaily   = undefined;
+      this._statsMonthly = undefined;
+      this._lastStatsFetch = 0;
+      this._statsDate = '';
+    }
     delete this._lastKey;
   }
 
-  set hass(hass) { this._hass = hass; this._render(); }
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+    const now = Date.now();
+    const today = new Date().toDateString();
+    if (now - this._lastStatsFetch > 300000 || this._statsDate !== today) {
+      this._lastStatsFetch = now;
+      this._statsDate = today;
+      this._fetchStats();
+    }
+  }
+
+  async _fetchStats() {
+    if (!this._hass || !this._config.meter_entity) return;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    try {
+      const [dayRes, monRes] = await Promise.all([
+        this._hass.callWS({
+          type: 'recorder/statistics_during_period',
+          start_time: todayStart,
+          statistic_ids: [this._config.meter_entity],
+          period: 'hour',
+          types: ['change'],
+        }),
+        this._hass.callWS({
+          type: 'recorder/statistics_during_period',
+          start_time: monthStart,
+          statistic_ids: [this._config.meter_entity],
+          period: 'day',
+          types: ['change'],
+        }),
+      ]);
+      const id = this._config.meter_entity;
+      const sumChange = arr => (arr || []).reduce((s, x) => s + (x.change ?? 0), 0);
+      this._statsDaily   = sumChange(dayRes[id]);
+      this._statsMonthly = sumChange(monRes[id]);
+      this._lastKey = null;
+      this._render();
+    } catch (e) {
+      console.error('[EnergyCard] Statistik-Fehler:', e);
+    }
+  }
 
   _getConsumers() {
     if (!this._hass) return [];
@@ -88,7 +142,9 @@ class EnergyCard extends HTMLElement {
 
   getCardSize() {
     const tiles = [this._config.total_entity, this._config.solar_entity,
-                   this._config.battery_entity, this._config.meter_entity].filter(Boolean).length;
+                   this._config.battery_entity, this._config.meter_entity,
+                   this._config.cost_entity, this._config.daily_entity,
+                   this._config.monthly_entity].filter(Boolean).length;
     const tileRows = this._config.show_tiles && tiles > 0 ? Math.ceil(tiles / 2) : 0;
     const rows = Math.ceil(this._getConsumers().length / (this._config.columns || 1));
     return Math.max(2, tileRows * 2 + rows + (this._config.show_header ? 1 : 0));
@@ -130,14 +186,29 @@ class EnergyCard extends HTMLElement {
     const costVal      = costSt    ? parseFloat(costSt.state)    : null;
     const costUnit     = costSt?.attributes?.unit_of_measurement || '';
 
+    const dailySt    = cfg.daily_entity   ? this._hass.states[cfg.daily_entity]   : null;
+    const monthlySt  = cfg.monthly_entity ? this._hass.states[cfg.monthly_entity] : null;
+    const dailyVal   = dailySt ? parseFloat(dailySt.state)
+                     : (this._statsDaily   !== undefined ? this._statsDaily   : null);
+    const dailyUnit  = dailySt?.attributes?.unit_of_measurement  || 'kWh';
+    const monthlyVal = monthlySt ? parseFloat(monthlySt.state)
+                     : (this._statsMonthly !== undefined ? this._statsMonthly : null);
+    const monthlyUnit = monthlySt?.attributes?.unit_of_measurement || 'kWh';
+
+    const showDaily   = !!(cfg.daily_entity   || cfg.meter_entity);
+    const showMonthly = !!(cfg.monthly_entity || cfg.meter_entity);
+
     const solarRatio = cfg.show_solar_ratio && solarWatts !== null && totalWatts !== null && totalWatts > 0
       ? Math.min(100, Math.round((solarWatts / totalWatts) * 100))
       : null;
 
     const hasTiles = cfg.show_tiles &&
-      (cfg.total_entity || cfg.solar_entity || cfg.battery_entity || cfg.meter_entity || cfg.cost_entity);
-    const tileCount = [cfg.total_entity, cfg.solar_entity, cfg.battery_entity, cfg.meter_entity, cfg.cost_entity]
-      .filter(Boolean).length;
+      (cfg.total_entity || cfg.solar_entity || cfg.battery_entity || cfg.meter_entity || cfg.cost_entity ||
+       cfg.daily_entity || cfg.monthly_entity);
+    const tileCount = [cfg.total_entity, cfg.solar_entity, cfg.battery_entity, cfg.meter_entity,
+                       cfg.cost_entity,
+                       showDaily   ? 'daily'   : null,
+                       showMonthly ? 'monthly' : null].filter(Boolean).length;
 
     const maxWatts = Math.max(...consumers.map(c => c.watts ?? 0), 1);
     const br   = cfg.border_radius ?? 16;
@@ -146,6 +217,7 @@ class EnergyCard extends HTMLElement {
     const key = [
       consumers.map(c => `${c.id}:${c.watts}`).join('|'),
       totalWatts, solarWatts, battPct, meterVal, costVal,
+      showDaily ? dailyVal : '', showMonthly ? monthlyVal : '',
       JSON.stringify(cfg),
     ].join('_');
     if (key === this._lastKey) return;
@@ -227,7 +299,7 @@ class EnergyCard extends HTMLElement {
 
         ${hasTiles ? `
           <div class="tiles">
-            ${cfg.total_entity   ? this._tile('mdi:transmission-tower',  'Akt. Gesamtverbrauch', formatPower(totalWatts), '#FF9800') : ''}
+            ${cfg.total_entity   ? this._tile('mdi:transmission-tower',  'Aktueller Verbrauch', formatPower(totalWatts), '#FF9800') : ''}
             ${cfg.solar_entity   ? this._tile('mdi:solar-power-variant', 'Solar', formatPower(solarWatts), '#4CAF50',
                 solarRatio !== null ? `${solarRatio} % Eigenverbrauch` : null) : ''}
             ${cfg.battery_entity ? this._tile('mdi:battery-charging',    'Akku',
@@ -236,6 +308,10 @@ class EnergyCard extends HTMLElement {
                 !isNaN(meterVal) ? `${meterVal.toFixed(1)}&thinsp;${meterUnit}` : '–', '#AB47BC') : ''}
             ${cfg.cost_entity    ? this._tile('mdi:currency-eur',        'Stromkosten',
                 !isNaN(costVal) ? `${costVal.toFixed(2)}&thinsp;${costUnit}` : '–', '#66BB6A') : ''}
+            ${showDaily   ? this._tile('mdi:calendar-today', 'Tagesverbrauch',
+                dailyVal !== null && !isNaN(dailyVal) ? `${dailyVal.toFixed(2)}&thinsp;${dailyUnit}` : '–', '#26C6DA') : ''}
+            ${showMonthly ? this._tile('mdi:calendar-month', 'Monatsverbrauch',
+                monthlyVal !== null && !isNaN(monthlyVal) ? `${monthlyVal.toFixed(2)}&thinsp;${monthlyUnit}` : '–', '#7E57C2') : ''}
           </div>
         ` : ''}
 
@@ -291,7 +367,8 @@ class EnergyCardEditor extends HTMLElement {
       const active = root.activeElement;
       [['total_entity','field_total'], ['solar_entity','field_solar'],
        ['battery_entity','field_battery'], ['meter_entity','field_meter'],
-       ['cost_entity','field_cost']].forEach(([key, fieldId]) => {
+       ['cost_entity','field_cost'], ['daily_entity','field_daily'],
+       ['monthly_entity','field_monthly']].forEach(([key, fieldId]) => {
         const container = root.getElementById(fieldId);
         if (!container) return;
         const input   = container.querySelector('input[type=text]');
@@ -637,6 +714,10 @@ class EnergyCardEditor extends HTMLElement {
         </div>
         <div class="row">
           <div class="field" id="field_cost"></div>
+          <div class="field" id="field_daily"></div>
+        </div>
+        <div class="row">
+          <div class="field" id="field_monthly"></div>
           <div class="field"></div>
         </div>
         <div class="toggle-row">
@@ -644,6 +725,7 @@ class EnergyCardEditor extends HTMLElement {
           <input type="checkbox" id="show_solar_ratio" ${c.show_solar_ratio ? 'checked' : ''} />
         </div>
         <div class="hint">Zeigt in der Solar-Kachel wie viel % des Gesamtverbrauchs durch Solar gedeckt wird (ben&ouml;tigt Solar + Gesamtverbrauch).</div>
+        <div class="hint" style="margin-top:4px;">Tagesverbrauch &amp; Monatsverbrauch werden automatisch aus den HA-Statistiken des Stromz&auml;hlers berechnet. Die Felder unten sind nur n&ouml;tig, wenn du eigene Sensoren verwenden m&ouml;chtest.</div>
 
         <div class="section">Verbraucher</div>
         <button class="load-btn" id="loadAllBtn">
@@ -709,6 +791,8 @@ class EnergyCardEditor extends HTMLElement {
     this._buildEntityField(root, 'field_battery', 'Akku-Ladestand',   'battery_entity');
     this._buildEntityField(root, 'field_meter',   'Stromzähler',      'meter_entity');
     this._buildEntityField(root, 'field_cost',    'Stromkosten',      'cost_entity');
+    this._buildEntityField(root, 'field_daily',   'Tagesverbrauch',   'daily_entity');
+    this._buildEntityField(root, 'field_monthly', 'Monatsverbrauch',  'monthly_entity');
 
     this._updateEntityList();
     this._updatePicker();
