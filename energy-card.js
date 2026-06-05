@@ -1,13 +1,22 @@
+// @ts-check
 // =====================================================================
 //  Energy Card v1.0.9
 // =====================================================================
 
+/**
+ * @param {number|null|undefined} watts
+ * @returns {string}
+ */
 function formatPower(watts) {
   if (watts === null || watts === undefined || isNaN(watts)) return '–';
   if (Math.abs(watts) >= 1000) return `${(watts / 1000).toFixed(2)} kW`;
   return `${Math.round(watts)} W`;
 }
 
+/**
+ * @param {HassEntity|null|undefined} st
+ * @returns {number|null}
+ */
 function getStateWatts(st) {
   if (!st) return null;
   const val = parseFloat(st.state);
@@ -23,6 +32,10 @@ function getConsumptionColor(ratio) {
   return '#F44336';
 }
 
+/**
+ * @param {HomeAssistant} hass
+ * @returns {string[]}
+ */
 function getAllPowerEntities(hass) {
   return Object.keys(hass.states).filter(id => {
     const attr = hass.states[id]?.attributes || {};
@@ -46,6 +59,7 @@ class EnergyCard extends HTMLElement {
     this._statsDate = '';
   }
 
+  /** @param {LovelaceCardConfig} config */
   setConfig(config) {
     if (!config) throw new Error('Keine Konfiguration');
     const prevMeter = this._config?.meter_entity;
@@ -71,6 +85,7 @@ class EnergyCard extends HTMLElement {
     delete this._lastKey;
   }
 
+  /** @param {HomeAssistant} hass */
   set hass(hass) {
     this._hass = hass;
     this._render();
@@ -371,10 +386,10 @@ class EnergyCardEditor extends HTMLElement {
        ['monthly_entity','field_monthly']].forEach(([key, fieldId]) => {
         const container = root.getElementById(fieldId);
         if (!container) return;
-        const input   = container.querySelector('input[type=text]');
-        const clrBtn  = container.querySelector('button');
+        const input   = /** @type {HTMLInputElement|null} */ (container.querySelector('input[type=text]'));
+        const clrBtn  = /** @type {HTMLElement|null} */ (container.querySelector('button'));
         if (input && active !== input) {
-          input.value = this._config[key] || '';
+          input.value = String(this._config[key] || '');
           if (clrBtn) clrBtn.style.display = this._config[key] ? 'block' : 'none';
         }
       });
@@ -385,6 +400,7 @@ class EnergyCardEditor extends HTMLElement {
     }
   }
 
+  /** @param {HomeAssistant} hass */
   set hass(hass) {
     this._hass = hass;
     if (!this._rendered) {
@@ -590,7 +606,7 @@ class EnergyCardEditor extends HTMLElement {
         return wb - wa;
       });
 
-    const picker = document.createElement('ha-entity-picker');
+    const picker = /** @type {HaEntityPicker} */ (document.createElement('ha-entity-picker'));
     picker.hass = this._hass;
     picker.value = '';
     picker.setAttribute('allow-custom-entity', '');
@@ -601,7 +617,7 @@ class EnergyCardEditor extends HTMLElement {
         && !current.includes(stateObj.entity_id);
     };
     picker.addEventListener('value-changed', e => {
-      const id = e.detail.value;
+      const id = /** @type {CustomEvent} */ (e).detail.value;
       if (!id) return;
       picker.value = '';
       this._config = { ...this._config, entities: [...this._getEntityIds(), id] };
@@ -754,33 +770,33 @@ class EnergyCardEditor extends HTMLElement {
     });
 
     root.getElementById('show_header').addEventListener('change', e => {
-      this._config = { ...this._config, show_header: e.target.checked };
+      this._config = { ...this._config, show_header: (/** @type {HTMLInputElement} */ (e.target)).checked };
       this._emit();
-      root.getElementById('titleField').style.display = e.target.checked ? '' : 'none';
+      root.getElementById('titleField').style.display = (/** @type {HTMLInputElement} */ (e.target)).checked ? '' : 'none';
     });
     root.getElementById('title').addEventListener('change', e => {
-      this._config = { ...this._config, title: e.target.value }; this._emit();
+      this._config = { ...this._config, title: (/** @type {HTMLInputElement} */ (e.target)).value }; this._emit();
     });
     root.getElementById('show_tiles').addEventListener('change', e => {
-      this._config = { ...this._config, show_tiles: e.target.checked }; this._emit();
+      this._config = { ...this._config, show_tiles: (/** @type {HTMLInputElement} */ (e.target)).checked }; this._emit();
     });
     root.getElementById('show_solar_ratio').addEventListener('change', e => {
-      this._config = { ...this._config, show_solar_ratio: e.target.checked }; this._emit();
+      this._config = { ...this._config, show_solar_ratio: (/** @type {HTMLInputElement} */ (e.target)).checked }; this._emit();
     });
     root.getElementById('columns').addEventListener('change', e => {
-      this._config = { ...this._config, columns: parseInt(e.target.value) }; this._emit();
+      this._config = { ...this._config, columns: parseInt((/** @type {HTMLInputElement} */ (e.target)).value) }; this._emit();
     });
     root.getElementById('min_watt_filter').addEventListener('change', e => {
-      this._config = { ...this._config, min_watt_filter: parseFloat(e.target.value) || 0 }; this._emit();
+      this._config = { ...this._config, min_watt_filter: parseFloat((/** @type {HTMLInputElement} */ (e.target)).value) || 0 }; this._emit();
     });
     root.getElementById('max_height').addEventListener('change', e => {
-      this._config = { ...this._config, max_height: parseInt(e.target.value) || 0 }; this._emit();
+      this._config = { ...this._config, max_height: parseInt((/** @type {HTMLInputElement} */ (e.target)).value) || 0 }; this._emit();
     });
     root.getElementById('border_radius').addEventListener('change', e => {
-      this._config = { ...this._config, border_radius: parseInt(e.target.value) }; this._emit();
+      this._config = { ...this._config, border_radius: parseInt((/** @type {HTMLInputElement} */ (e.target)).value) }; this._emit();
     });
     root.getElementById('icon_size').addEventListener('change', e => {
-      this._config = { ...this._config, icon_size: parseInt(e.target.value) }; this._emit();
+      this._config = { ...this._config, icon_size: parseInt((/** @type {HTMLInputElement} */ (e.target)).value) }; this._emit();
     });
   }
 }
