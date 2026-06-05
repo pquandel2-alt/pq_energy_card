@@ -16,6 +16,9 @@ jobs:
         uses: hacs/action@main
         with:
           category: plugin
+          # "images" ignoriert: README-Screenshot ist noch nicht hinterlegt.
+          # "topics" wurde echt gesetzt und ist daher NICHT ignoriert.
+          ignore: "images"
 
   syntax:
     name: JS-Syntaxcheck
